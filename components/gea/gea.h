@@ -266,7 +266,7 @@ class GEAComponent : public uart::UARTDevice, public Component {
   // Request machinery — serializes outgoing requests so only one is in flight
   // at a time, retries on timeout, and drops once exhausted.  Unsolicited
   // frames (ACK, publication ACK) bypass the queue.
-  static constexpr uint32_t REQUEST_TIMEOUT_MS = 250;
+  static constexpr uint32_t REQUEST_TIMEOUT_MS = 750;
   static constexpr uint8_t REQUEST_MAX_RETRIES = 10;
   std::deque<PendingRequest> request_queue_;
   PendingRequest pending_{};

@@ -592,6 +592,7 @@ void GEAComponent::loop() {
     request_queue_.pop_front();
     pending_active_ = true;
     transmit_pending_();
+    tx_quiet_until_ms_ = millis() + TX_QUIET_MS;
   }
 }
 

@@ -48,8 +48,6 @@ static constexpr uint8_t CMD_SUB_HOST_STARTUP = 0xA8;  // appliance announces it
 // ---------------------------------------------------------------------------
 static constexpr uint8_t CMD_GEA2_READ = 0xF0;   // read request and read response
 static constexpr uint8_t CMD_GEA2_WRITE = 0xF1;  // write request and write response
-uint32_t tx_quiet_until_ms_{0};
-static constexpr uint32_t TX_QUIET_MS = 200; // quiet window after TX
 
 // ---------------------------------------------------------------------------
 // Protocol selector
@@ -220,6 +218,7 @@ class GEAComponent : public uart::UARTDevice, public Component {
 
   // Request queue / retry machinery
   uint8_t next_req_id_();
+  uint32_t tx_quiet_until_ms_{0};
   void enqueue_request_(uint8_t cmd, std::vector<uint8_t> body);
   bool has_inflight_cmd_(uint8_t cmd) const;
   void transmit_pending_();
@@ -236,6 +235,7 @@ class GEAComponent : public uart::UARTDevice, public Component {
   // Protocol utilities
   static uint16_t crc16_(const uint8_t *data, size_t len);
   static std::vector<uint8_t> escape_(const std::vector<uint8_t> &raw);
+  static constexpr uint32_t TX_QUIET_MS = 200;
 
   // Configuration
   // When auto_detect_ is true, dest_addr_ starts as broadcast and is updated

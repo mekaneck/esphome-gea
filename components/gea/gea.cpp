@@ -298,9 +298,8 @@ void GEAComponent::setup() {
 #ifdef USE_ESP_IDF
     // Configure UART for half-duplex RS-485 mode to suppress RX echo during TX,
     // preventing the adapter's own transmitted bytes from colliding with responses.
-    uart_port_t uart_num = (uart_port_t)parent_->get_hw_serial_number();
-    uart_set_mode(uart_num, UART_MODE_RS485_HALF_DUPLEX);
-    ESP_LOGI(TAG, "Configured UART%d for RS-485 half-duplex mode", uart_num);
+    uart_set_mode(UART_NUM_1, UART_MODE_RS485_HALF_DUPLEX);
+    ESP_LOGI(TAG, "Configured UART1 for RS-485 half-duplex mode");
 #endif
     // GEA2 has no subscribe-all and no spontaneous publications. The Python
     // schema enforces dest_address is set, so auto_detect_ is irrelevant here.

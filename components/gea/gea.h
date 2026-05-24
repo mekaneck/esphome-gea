@@ -48,6 +48,8 @@ static constexpr uint8_t CMD_SUB_HOST_STARTUP = 0xA8;  // appliance announces it
 // ---------------------------------------------------------------------------
 static constexpr uint8_t CMD_GEA2_READ = 0xF0;   // read request and read response
 static constexpr uint8_t CMD_GEA2_WRITE = 0xF1;  // write request and write response
+uint32_t tx_quiet_until_ms_{0};
+static constexpr uint32_t TX_QUIET_MS = 200; // quiet window after TX
 
 // ---------------------------------------------------------------------------
 // Protocol selector

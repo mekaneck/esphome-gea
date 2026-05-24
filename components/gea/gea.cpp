@@ -779,7 +779,7 @@ void GEAComponent::process_packet_(const std::vector<uint8_t> &pkt) {
   ESP_LOGD(TAG, "Valid packet: src=0x%02X cmd=0x%02X len=%zu", src, pkt.size() >= 4 ? pkt[3] : 0, pkt.size());
 
   // Packet is valid — acknowledge it and record receive time (used by is_bus_connected()).
-  send_ack_();
+  // send_ack_();
   last_rx_ms_ = millis();
 
   // Auto-detect: lock onto the source address of the first valid packet.

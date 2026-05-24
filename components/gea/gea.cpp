@@ -331,6 +331,8 @@ void GEAComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Src address:  0x%02X", src_addr_);
   if (protocol_ == Protocol::GEA2) {
     ESP_LOGCONFIG(TAG, "  Poll interval: %u ms", poll_interval_ms_);
+    uart_set_mode(UART_NUM_0, UART_MODE_RS485_HALF_DUPLEX);
+    ESP_LOGI(TAG, "RS-485 half-duplex mode applied to UART0");
   }
   ESP_LOGCONFIG(TAG, "  Registered entities: %zu", entities_.size());
   for (auto *e : entities_) {

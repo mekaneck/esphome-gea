@@ -185,7 +185,8 @@ void GEAComponent::send_packet_(uint8_t dest, const std::vector<uint8_t> &payloa
   write_byte(GEA_ETX);
   // Small delay to ensure our ETX has fully transmitted before the dryer
   // starts its response, preventing STX collision on the open-drain bus.
-  delay(2);  // 2ms ≈ ~2 byte times at 9600 baud
+  if (protocol_ == Protocol::GEA2)
+    delay(2); // 2ms ≈ ~2 byte times at 9600 baud
 }
 
 uint8_t GEAComponent::next_req_id_() {
@@ -715,23 +716,30 @@ void GEAComponent::poll_next_() {
 // (STX and ETX are not stored.)
 void GEAComponent::process_rx_byte_(uint8_t byte) {
   if (protocol_ == Protocol::GEA2 && echo_pos_ < echo_buf_.size()) {
-      // Cancel all echo bytes except the final ETX — stopping one byte early
-      // ensures the dryer's STX response isn't consumed if it arrives immediately
-      // after our ETX.
-      if (echo_pos_ < echo_buf_.size() - 1) {
-        if (byte == echo_buf_[echo_pos_]) {
-          echo_pos_++;
-          return;
-        } else {
-          echo_pos_ = echo_buf_.size();
-          echo_buf_.clear();
-        }
+    if (echo_pos_ < echo_buf_.size() - 1) {
+      // Cancel all echo bytes except the final ETX
+      if (byte == echo_buf_[echo_pos_]) {
+        echo_pos_++;
+        return;
       } else {
-        // Last byte (ETX) — stop filtering, let it through
         echo_pos_ = echo_buf_.size();
         echo_buf_.clear();
       }
+    } else {
+      // Last byte is our ETX — don't consume it, stop filtering.
+      // The dryer's STX collides with our ETX on the open-drain bus,
+      // so instead of waiting for a clean STX, jump straight into
+      // IN_PACKET mode to catch the dryer's response that follows.
+      echo_pos_ = echo_buf_.size();
+      echo_buf_.clear();
+      if (byte == GEA_ETX || byte == GEA_STX) {
+        rx_buf_.clear();
+        rx_state_ = RxState::IN_PACKET;
+        ESP_LOGD(TAG, "RX: post-TX collision — entering IN_PACKET directly");
+        return;
+      }
     }
+  }
   switch (rx_state_) {
     case RxState::IDLE:
       if (byte == GEA_STX) {

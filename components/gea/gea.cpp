@@ -183,6 +183,9 @@ void GEAComponent::send_packet_(uint8_t dest, const std::vector<uint8_t> &payloa
   write_byte(GEA_STX);
   write_array(escaped.data(), escaped.size());
   write_byte(GEA_ETX);
+  // Small delay to ensure our ETX has fully transmitted before the dryer
+  // starts its response, preventing STX collision on the open-drain bus.
+  delay(2);  // 2ms ≈ ~2 byte times at 9600 baud
 }
 
 uint8_t GEAComponent::next_req_id_() {

@@ -218,7 +218,6 @@ class GEAComponent : public uart::UARTDevice, public Component {
 
   // Request queue / retry machinery
   uint8_t next_req_id_();
-  uint32_t tx_quiet_until_ms_{0};
   void enqueue_request_(uint8_t cmd, std::vector<uint8_t> body);
   bool has_inflight_cmd_(uint8_t cmd) const;
   void transmit_pending_();
@@ -235,7 +234,6 @@ class GEAComponent : public uart::UARTDevice, public Component {
   // Protocol utilities
   static uint16_t crc16_(const uint8_t *data, size_t len);
   static std::vector<uint8_t> escape_(const std::vector<uint8_t> &raw);
-  static constexpr uint32_t TX_QUIET_MS = 200;
 
   // Configuration
   // When auto_detect_ is true, dest_addr_ starts as broadcast and is updated
@@ -313,6 +311,10 @@ class GEAComponent : public uart::UARTDevice, public Component {
   // On first boot: scans GEA2_DISCOVERY_TABLE, saves responsive ERDs to NVS.
   // On subsequent boots: loads saved list and skips the scan.
   bool gea2_discovery_{false};
+
+  // Echo cancellation: bytes we transmitted that we expect to see echoed back on RX.
+  std::vector<uint8_t> echo_buf_;
+  size_t echo_pos_{0};
 
 #ifdef GEA_GEA2_DISCOVERY
   enum class DiscoveryState { SCANNING, DONE };

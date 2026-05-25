@@ -571,15 +571,13 @@ void GEAComponent::loop() {
   // matching on the response is unambiguous.
   uint32_t now_req = millis();
   if (pending_active_) {
-    if (now_req - pending_.sent_at_ms >= REQUEST_TIMEOUT_MS && 
-      now_req >= tx_quiet_until_ms_) {
+    if (now_req - pending_.sent_at_ms >= REQUEST_TIMEOUT_MS) {
       if (pending_.retries_left > 0) {
         pending_.retries_left--;
         tx_retries_++;
         ESP_LOGD(TAG, "Request cmd=0x%02X id=0x%02X timed out, retrying (%u left)", pending_.cmd, pending_.req_id,
                  pending_.retries_left);
         transmit_pending_();
-        tx_quiet_until_ms_ = millis() + TX_QUIET_MS;
       } else {
         if (pending_.is_discovery) {
 #ifdef GEA_GEA2_DISCOVERY
@@ -598,7 +596,6 @@ void GEAComponent::loop() {
     request_queue_.pop_front();
     pending_active_ = true;
     transmit_pending_();
-    tx_quiet_until_ms_ = millis() + TX_QUIET_MS;
   }
 }
 

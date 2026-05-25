@@ -711,6 +711,12 @@ void GEAComponent::poll_next_() {
 //   [DEST][LEN][SRC][PAYLOAD...][CRC_LO][CRC_HI]
 // (STX and ETX are not stored.)
 void GEAComponent::process_rx_byte_(uint8_t byte) {
+  if (protocol_ == Protocol::GEA2 && !echo_buf_.empty()) {
+  ESP_LOGV(TAG, "Echo check: byte=0x%02X expected=0x%02X pos=%zu/%zu",
+           byte,
+           echo_pos_ < echo_buf_.size() ? echo_buf_[echo_pos_] : 0xFF,
+           echo_pos_, echo_buf_.size());
+  }
   // Echo cancellation: if this byte matches the next expected echo byte,
   // discard it — it's our own transmitted byte reflected back by the bus.
   if (protocol_ == Protocol::GEA2 && echo_pos_ < echo_buf_.size()) {

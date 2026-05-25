@@ -711,23 +711,24 @@ void GEAComponent::poll_next_() {
 //   [DEST][LEN][SRC][PAYLOAD...][CRC_LO][CRC_HI]
 // (STX and ETX are not stored.)
 void GEAComponent::process_rx_byte_(uint8_t byte) {
-  if (protocol_ == Protocol::GEA2 && !echo_buf_.empty()) {
-  ESP_LOGV(TAG, "Echo check: byte=0x%02X expected=0x%02X pos=%zu/%zu",
-           byte,
-           echo_pos_ < echo_buf_.size() ? echo_buf_[echo_pos_] : 0xFF,
-           echo_pos_, echo_buf_.size());
-  }
-  // Echo cancellation: if this byte matches the next expected echo byte,
-  // discard it — it's our own transmitted byte reflected back by the bus.
   if (protocol_ == Protocol::GEA2 && echo_pos_ < echo_buf_.size()) {
-    if (byte == echo_buf_[echo_pos_]) {
-      echo_pos_++;
-      return;  // discard echo byte
-    } else {
-      // Mismatch — echo window is over or bus has data; stop echo filtering.
-      echo_pos_ = echo_buf_.size();
+      // Cancel all echo bytes except the final ETX — stopping one byte early
+      // ensures the dryer's STX response isn't consumed if it arrives immediately
+      // after our ETX.
+      if (echo_pos_ < echo_buf_.size() - 1) {
+        if (byte == echo_buf_[echo_pos_]) {
+          echo_pos_++;
+          return;
+        } else {
+          echo_pos_ = echo_buf_.size();
+          echo_buf_.clear();
+        }
+      } else {
+        // Last byte (ETX) — stop filtering, let it through
+        echo_pos_ = echo_buf_.size();
+        echo_buf_.clear();
+      }
     }
-  }
   switch (rx_state_) {
     case RxState::IDLE:
       if (byte == GEA_STX) {

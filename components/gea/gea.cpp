@@ -7,8 +7,6 @@
 #endif
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
-#include "driver/uart.h"
-#include "esphome/components/uart/uart.h"
 
 namespace esphome {
 namespace gea {
@@ -174,6 +172,14 @@ void GEAComponent::send_packet_(uint8_t dest, const std::vector<uint8_t> &payloa
 
   auto escaped = escape_(inner);
 
+  // Record transmitted bytes for echo cancellation.
+  if (protocol_ == Protocol::GEA2) {
+    echo_buf_.clear();
+    echo_buf_.push_back(GEA_STX);
+    echo_buf_.insert(echo_buf_.end(), escaped.begin(), escaped.end());
+    echo_buf_.push_back(GEA_ETX);
+    echo_pos_ = 0;
+  }
   write_byte(GEA_STX);
   write_array(escaped.data(), escaped.size());
   write_byte(GEA_ETX);
@@ -295,14 +301,6 @@ void GEAComponent::setup() {
   ESP_LOGCONFIG(TAG, "Setting up GEA component (protocol=%s)...", protocol_ == Protocol::GEA2 ? "GEA2" : "GEA3");
   rx_buf_.reserve(64);
   if (protocol_ == Protocol::GEA2) {
-#ifdef USE_ESP_IDF
-    // Configure UART for half-duplex RS-485 mode to suppress RX echo during TX,
-    // preventing the adapter's own transmitted bytes from colliding with responses.
-    uart_set_mode(UART_NUM_0, UART_MODE_RS485_HALF_DUPLEX);
-    ESP_LOGI(TAG, "Configured UART0 for RS-485 half-duplex mode");
-#endif
-    // GEA2 has no subscribe-all and no spontaneous publications. The Python
-    // schema enforces dest_address is set, so auto_detect_ is irrelevant here.
     auto_detect_ = false;
     ESP_LOGI(TAG, "GEA2 mode — values will be polled (interval=%u ms)", poll_interval_ms_);
     last_poll_ms_ = millis();
@@ -315,7 +313,7 @@ void GEAComponent::setup() {
       ESP_LOGI(TAG, "Address auto-detect enabled — sending subscribe-all to broadcast");
       dest_addr_ = GEA_BROADCAST_ADDR;
     }
-    send_subscribe_all_(0x00);  // type=add
+    send_subscribe_all_(0x00);
     sub_retry_ms_ = millis();
   }
 }
@@ -331,8 +329,6 @@ void GEAComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Src address:  0x%02X", src_addr_);
   if (protocol_ == Protocol::GEA2) {
     ESP_LOGCONFIG(TAG, "  Poll interval: %u ms", poll_interval_ms_);
-    uart_set_mode(UART_NUM_0, UART_MODE_RS485_HALF_DUPLEX);
-    ESP_LOGI(TAG, "RS-485 half-duplex mode applied to UART0");
   }
   ESP_LOGCONFIG(TAG, "  Registered entities: %zu", entities_.size());
   for (auto *e : entities_) {
@@ -718,6 +714,17 @@ void GEAComponent::poll_next_() {
 //   [DEST][LEN][SRC][PAYLOAD...][CRC_LO][CRC_HI]
 // (STX and ETX are not stored.)
 void GEAComponent::process_rx_byte_(uint8_t byte) {
+  // Echo cancellation: if this byte matches the next expected echo byte,
+  // discard it — it's our own transmitted byte reflected back by the bus.
+  if (protocol_ == Protocol::GEA2 && echo_pos_ < echo_buf_.size()) {
+    if (byte == echo_buf_[echo_pos_]) {
+      echo_pos_++;
+      return;  // discard echo byte
+    } else {
+      // Mismatch — echo window is over or bus has data; stop echo filtering.
+      echo_pos_ = echo_buf_.size();
+    }
+  }
   switch (rx_state_) {
     case RxState::IDLE:
       if (byte == GEA_STX) {

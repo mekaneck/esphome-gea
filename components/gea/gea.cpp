@@ -735,6 +735,7 @@ void GEAComponent::process_rx_byte_(uint8_t byte) {
       if (byte == GEA_ETX || byte == GEA_STX) {
         rx_buf_.clear();
         rx_state_ = RxState::IN_PACKET;
+        gea2_expecting_response_ = true;
         ESP_LOGD(TAG, "RX: post-TX collision — entering IN_PACKET directly");
         return;
       }
@@ -794,9 +795,17 @@ void GEAComponent::process_packet_(const std::vector<uint8_t> &pkt) {
 
   // Filter packets not addressed to us (or broadcast).
   if (dest != src_addr_ && dest != GEA_BROADCAST_ADDR) {
-    ESP_LOGD(TAG, "Ignoring packet for 0x%02X (we are 0x%02X)", dest, src_addr_);
-    return;
+    if (protocol_ == Protocol::GEA2 && gea2_expecting_response_) {
+      // Accept this packet — arrived via post-TX collision path, dest may be
+      // corrupted by bus collision but this is our expected response.
+      ESP_LOGD(TAG, "GEA2 accepting post-collision response (dest=0x%02X)", dest);
+    } else {
+      ESP_LOGD(TAG, "Ignoring packet for 0x%02X (we are 0x%02X)", dest, src_addr_);
+      gea2_expecting_response_ = false;
+      return;
+    }
   }
+  gea2_expecting_response_ = false;  // reset after use
 
   // Validate CRC: computed over everything except the last 2 (CRC) bytes.
   // GEA3 wire order is CRC MSB first, then LSB (big-endian).

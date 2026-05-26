@@ -224,6 +224,7 @@ class GEAComponent : public uart::UARTDevice, public Component {
   void finish_pending_();
   bool response_matches_pending_(uint8_t response_cmd, uint8_t req_id) const;
   bool gea2_response_matches_pending_(uint8_t response_cmd, uint16_t erd) const;
+  bool gea2_expecting_response_{false};
 
   // RX state machine
   void process_rx_byte_(uint8_t byte);

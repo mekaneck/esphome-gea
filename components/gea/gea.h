@@ -228,7 +228,7 @@ class GEAComponent : public uart::UARTDevice, public Component {
 
   // RX state machine
   void process_rx_byte_(uint8_t byte);
-  void process_packet_(const std::vector<uint8_t> &pkt);
+  void process_packet_(const std::vector<uint8_t> &pkt_in);
   void dispatch_erd_(uint16_t erd, const std::vector<uint8_t> &data);
   void log_discovery_(uint16_t erd, const std::vector<uint8_t> &data);
 

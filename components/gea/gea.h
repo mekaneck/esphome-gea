@@ -110,9 +110,6 @@ class GEAEntity {
   float multiplier_{1.0f};
   float offset_{0.0f};
   GEAComponent *parent_{nullptr};
-  static constexpr uint32_t BUS_IDLE_MS = 10;
-  uint32_t last_bus_activity_ms_{0};
-  uint32_t last_tx_rx_count_{0};
 
   // Decode the ERD byte vector into a numeric float value, applying
   // multiplier/offset (output = raw * multiplier + offset).
@@ -278,6 +275,11 @@ class GEAComponent : public uart::UARTDevice, public Component {
 
   // Timestamp of the last successfully received packet (ms since boot, 0 = none).
   uint32_t last_rx_ms_{0};
+
+  // Bus idle check
+  static constexpr uint32_t BUS_IDLE_MS = 10;
+  uint32_t last_bus_activity_ms_{0};
+  uint32_t last_tx_rx_count_{0};
 
   // Tracks previous bus state to detect appliance reconnection.
   bool was_connected_{false};

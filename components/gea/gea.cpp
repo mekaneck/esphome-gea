@@ -800,8 +800,12 @@ void GEAComponent::process_packet_(const std::vector<uint8_t> &pkt_in) {
   // Filter packets not addressed to us (or broadcast).
   if (dest != src_addr_ && dest != GEA_BROADCAST_ADDR) {
     if (protocol_ == Protocol::GEA2 && gea2_expecting_response_) {
-      // Accept this packet — arrived via post-TX collision path, dest may be
-      // corrupted by bus collision but this is our expected response.
+      if (src == src_addr_) {
+        // This is our own echo, not the dryer's response — discard it
+        // but keep gea2_expecting_response_ set so we catch the real response.
+        ESP_LOGD(TAG, "GEA2 discarding own echo (src=0x%02X)", src);
+        return;
+      }
       ESP_LOGD(TAG, "GEA2 accepting post-collision response (dest=0x%02X) — patching to 0x%02X", dest, src_addr_);
       pkt[0] = src_addr_;
       dest = src_addr_;
@@ -811,7 +815,7 @@ void GEAComponent::process_packet_(const std::vector<uint8_t> &pkt_in) {
       return;
     }
   }
-  gea2_expecting_response_ = false;  // reset after use
+  gea2_expecting_response_ = false;
 
   // Validate CRC: computed over everything except the last 2 (CRC) bytes.
   // GEA3 wire order is CRC MSB first, then LSB (big-endian).

@@ -781,7 +781,11 @@ void GEAComponent::process_rx_byte_(uint8_t byte) {
 // =============================================================================
 
 // pkt = [DEST][LEN][SRC][PAYLOAD...][CRC_MSB][CRC_LSB]  (already unescaped)
-void GEAComponent::process_packet_(const std::vector<uint8_t> &pkt) {
+void GEAComponent::process_packet_(const std::vector<uint8_t> &pkt_in) {
+  // Work on a mutable copy so we can patch the dest byte for GEA2
+  // post-collision responses where dest may be corrupted by bus collision.
+  std::vector<uint8_t> pkt = pkt_in;
+  
   // Minimum viable packet: DEST + LEN + SRC + CMD + CRC_LO + CRC_HI = 6 bytes.
   if (pkt.size() < 6) {
     ESP_LOGV(TAG, "Short packet (%zu bytes), discarding", pkt.size());
@@ -798,7 +802,9 @@ void GEAComponent::process_packet_(const std::vector<uint8_t> &pkt) {
     if (protocol_ == Protocol::GEA2 && gea2_expecting_response_) {
       // Accept this packet — arrived via post-TX collision path, dest may be
       // corrupted by bus collision but this is our expected response.
-      ESP_LOGD(TAG, "GEA2 accepting post-collision response (dest=0x%02X)", dest);
+      ESP_LOGD(TAG, "GEA2 accepting post-collision response (dest=0x%02X) — patching to 0x%02X", dest, src_addr_);
+      pkt[0] = src_addr_;
+      dest = src_addr_;
     } else {
       ESP_LOGD(TAG, "Ignoring packet for 0x%02X (we are 0x%02X)", dest, src_addr_);
       gea2_expecting_response_ = false;

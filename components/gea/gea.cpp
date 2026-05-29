@@ -509,6 +509,7 @@ void GEAComponent::loop() {
     if (!read_byte(&byte))
       break;
     rx_byte_count_++;
+    last_bus_activity_ms_ = millis();
     process_rx_byte_(byte);
   }
 
@@ -596,10 +597,15 @@ void GEAComponent::loop() {
     }
   }
   if (!pending_active_ && !request_queue_.empty()) {
-    pending_ = std::move(request_queue_.front());
-    request_queue_.pop_front();
-    pending_active_ = true;
-    transmit_pending_();
+    if (protocol_ == Protocol::GEA2 &&
+        millis() - last_bus_activity_ms_ < BUS_IDLE_MS) {
+      // Bus not yet idle — wait for silence before transmitting
+    } else {
+      pending_ = std::move(request_queue_.front());
+      request_queue_.pop_front();
+      pending_active_ = true;
+      transmit_pending_();
+    }
   }
 }
 

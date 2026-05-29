@@ -582,7 +582,13 @@ void GEAComponent::loop() {
         tx_retries_++;
         ESP_LOGD(TAG, "Request cmd=0x%02X id=0x%02X timed out, retrying (%u left)", pending_.cmd, pending_.req_id,
                  pending_.retries_left);
-        transmit_pending_();
+        if (protocol_ != Protocol::GEA2 ||
+            millis() - last_bus_activity_ms_ >= BUS_IDLE_MS) {
+          transmit_pending_();
+        } else {
+          // Bus not idle — reset timeout to retry again after idle
+          pending_.sent_at_ms = millis() - REQUEST_TIMEOUT_MS + BUS_IDLE_MS;
+        }
       } else {
         if (pending_.is_discovery) {
 #ifdef GEA_GEA2_DISCOVERY

@@ -110,6 +110,9 @@ class GEAEntity {
   float multiplier_{1.0f};
   float offset_{0.0f};
   GEAComponent *parent_{nullptr};
+  static constexpr uint32_t BUS_IDLE_MS = 10;
+  uint32_t last_bus_activity_ms_{0};
+  uint32_t last_tx_rx_count_{0};
 
   // Decode the ERD byte vector into a numeric float value, applying
   // multiplier/offset (output = raw * multiplier + offset).

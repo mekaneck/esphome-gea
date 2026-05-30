@@ -276,6 +276,10 @@ class GEAComponent : public uart::UARTDevice, public Component {
   // Timestamp of the last successfully received packet (ms since boot, 0 = none).
   uint32_t last_rx_ms_{0};
 
+  // Timeout for echo cancellation
+  uint32_t echo_start_ms_{0};
+  static constexpr uint32_t ECHO_TIMEOUT_MS = 50;
+
   // Bus idle check
   static constexpr uint32_t BUS_IDLE_MS = 10;
   uint32_t last_bus_activity_ms_{0};

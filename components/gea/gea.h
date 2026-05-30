@@ -278,7 +278,7 @@ class GEAComponent : public uart::UARTDevice, public Component {
 
   // Timeout for echo cancellation
   uint32_t echo_start_ms_{0};
-  static constexpr uint32_t ECHO_TIMEOUT_MS = 50;
+  static constexpr uint32_t ECHO_TIMEOUT_MS = 2000;
 
   // Bus idle check
   static constexpr uint32_t BUS_IDLE_MS = 10;

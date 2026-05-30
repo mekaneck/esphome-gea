@@ -308,6 +308,7 @@ void GEAComponent::setup() {
   if (protocol_ == Protocol::GEA2) {
     auto_detect_ = false;
     ESP_LOGI(TAG, "GEA2 mode — values will be polled (interval=%u ms)", poll_interval_ms_);
+    uart_set_mode(UART_NUM_0, UART_MODE_RS485_COLLISION_DETECT);
     last_poll_ms_ = millis();
 #ifdef GEA_GEA2_DISCOVERY
     if (gea2_discovery_)

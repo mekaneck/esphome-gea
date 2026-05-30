@@ -179,6 +179,7 @@ void GEAComponent::send_packet_(uint8_t dest, const std::vector<uint8_t> &payloa
     echo_buf_.insert(echo_buf_.end(), escaped.begin(), escaped.end());
     echo_buf_.push_back(GEA_ETX);
     echo_pos_ = 0;
+    echo_start_ms_ = millis();
   }
   write_byte(GEA_STX);
   write_array(escaped.data(), escaped.size());
@@ -728,7 +729,11 @@ void GEAComponent::poll_next_() {
 // (STX and ETX are not stored.)
 void GEAComponent::process_rx_byte_(uint8_t byte) {
   if (protocol_ == Protocol::GEA2 && echo_pos_ < echo_buf_.size()) {
-    if (echo_pos_ < echo_buf_.size() - 1) {
+    // Abandon echo window if it's taking too long
+    if (millis() - echo_start_ms_ > ECHO_TIMEOUT_MS) {
+      echo_pos_ = echo_buf_.size();
+      echo_buf_.clear();
+    } else if (echo_pos_ < echo_buf_.size() - 1) {
       // Cancel all echo bytes except the final ETX
       if (byte == echo_buf_[echo_pos_]) {
         echo_pos_++;

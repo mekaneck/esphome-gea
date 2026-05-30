@@ -7,6 +7,7 @@
 #endif
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#include "driver/uart.h"
 
 namespace esphome {
 namespace gea {

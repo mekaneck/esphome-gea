@@ -49,6 +49,13 @@ static constexpr uint8_t CMD_SUB_HOST_STARTUP = 0xA8;  // appliance announces it
 static constexpr uint8_t CMD_GEA2_READ = 0xF0;   // read request and read response
 static constexpr uint8_t CMD_GEA2_WRITE = 0xF1;  // write request and write response
 
+// GEA2 byte-by-byte TX with reflection checking
+std::vector<uint8_t> tx_frame_;   // complete frame to send
+size_t tx_frame_pos_{0};          // current byte position
+bool tx_in_progress_{false};      // true while sending byte-by-byte
+static constexpr uint32_t REFLECTION_TIMEOUT_MS = 6;
+uint32_t reflection_sent_ms_{0};
+
 // ---------------------------------------------------------------------------
 // Protocol selector
 // ---------------------------------------------------------------------------

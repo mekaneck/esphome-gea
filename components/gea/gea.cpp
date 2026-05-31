@@ -622,14 +622,14 @@ void GEAComponent::loop() {
   uint32_t now_req = millis();
   if (pending_active_) {
     if (protocol_ == Protocol::GEA2 && tx_state_ == TxState::COLLISION_BACKOFF) {
-      if (millis() >= gea2_backoff_until_ms_) {
+      if (now_req >= gea2_backoff_until_ms_) {
         ESP_LOGI(TAG, "GEA2 collision backoff expired, retrying pending request cmd=0x%02X", pending_.cmd);
         gea2_tx_index_ = 0;
         tx_state_ = TxState::SENDING;
         rx_state_ = RxState::IDLE;
         rx_buf_.clear();
         send_next_gea2_byte_();
-        pending_.sent_at_ms = millis();
+        pending_.sent_at_ms = now_req;
       }
     }
 

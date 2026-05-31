@@ -196,6 +196,48 @@ void GEAComponent::send_pub_ack_(uint8_t context, uint8_t request_id) {
   send_packet_(dest_addr_, payload);
 }
 
+void GEAComponent::build_gea2_tx_frame_(uint8_t dest, const std::vector<uint8_t> &payload) {
+  std::vector<uint8_t> inner;
+  inner.reserve(4 + payload.size() + 2);
+  inner.push_back(dest);
+  inner.push_back((uint8_t)(7 + payload.size()));
+  inner.push_back(src_addr_);
+  inner.insert(inner.end(), payload.begin(), payload.end());
+
+  uint16_t crc = crc16_(inner.data(), inner.size());
+  inner.push_back((uint8_t)(crc >> 8));
+  inner.push_back((uint8_t)(crc & 0xFF));
+
+  auto escaped = escape_(inner);
+  gea2_tx_frame_.clear();
+  gea2_tx_frame_.reserve(1 + escaped.size() + 1);
+  gea2_tx_frame_.push_back(GEA_STX);
+  gea2_tx_frame_.insert(gea2_tx_frame_.end(), escaped.begin(), escaped.end());
+  gea2_tx_frame_.push_back(GEA_ETX);
+}
+
+void GEAComponent::send_next_gea2_byte_() {
+  if (gea2_tx_index_ >= gea2_tx_frame_.size())
+    return;
+  write_byte(gea2_tx_frame_[gea2_tx_index_]);
+}
+
+void GEAComponent::abort_gea2_transmit_() {
+  tx_collisions_++;
+  uint32_t backoff_ms = compute_gea2_backoff_ms_();
+  tx_state_ = TxState::COLLISION_BACKOFF;
+  gea2_backoff_until_ms_ = millis() + backoff_ms;
+  pending_.sent_at_ms = millis();
+  rx_state_ = RxState::IDLE;
+  rx_buf_.clear();
+  ESP_LOGW(TAG, "GEA2 collision detected on pending request cmd=0x%02X, backing off for %ums", pending_.cmd, backoff_ms);
+}
+
+uint32_t GEAComponent::compute_gea2_backoff_ms_() const {
+  uint8_t pseudo_random = static_cast<uint8_t>(millis() & 0xFF);
+  return 43 + (src_addr_ & 0x1F) + ((pseudo_random ^ src_addr_) & 0x1F);
+}
+
 // Trigger ERD discovery: the appliance responds with a publication (0xA6) for
 // every ERD it supports.  We log each one and also route values to any
 // user-configured entities that match.
@@ -248,7 +290,18 @@ void GEAComponent::transmit_pending_() {
   if (protocol_ == Protocol::GEA3)
     payload.push_back(pending_.req_id);
   payload.insert(payload.end(), pending_.body.begin(), pending_.body.end());
-  send_packet_(pending_.dest, payload);
+
+  if (protocol_ == Protocol::GEA2) {
+    build_gea2_tx_frame_(pending_.dest, payload);
+    gea2_tx_index_ = 0;
+    tx_state_ = TxState::SENDING;
+    rx_state_ = RxState::IDLE;
+    rx_buf_.clear();
+    send_next_gea2_byte_();
+  } else {
+    send_packet_(pending_.dest, payload);
+  }
+
   pending_.sent_at_ms = millis();
 }
 
@@ -325,6 +378,9 @@ void GEAComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "  Poll interval: %u ms", poll_interval_ms_);
   }
   ESP_LOGCONFIG(TAG, "  Registered entities: %zu", entities_.size());
+  if (protocol_ == Protocol::GEA2) {
+    ESP_LOGCONFIG(TAG, "  GEA2 collisions: %u", tx_collisions_);
+  }
   for (auto *e : entities_) {
     ESP_LOGCONFIG(TAG, "    ERD 0x%04X", e->get_erd());
   }
@@ -565,6 +621,18 @@ void GEAComponent::loop() {
   // matching on the response is unambiguous.
   uint32_t now_req = millis();
   if (pending_active_) {
+    if (protocol_ == Protocol::GEA2 && tx_state_ == TxState::COLLISION_BACKOFF) {
+      if (millis() >= gea2_backoff_until_ms_) {
+        ESP_LOGI(TAG, "GEA2 collision backoff expired, retrying pending request cmd=0x%02X", pending_.cmd);
+        gea2_tx_index_ = 0;
+        tx_state_ = TxState::SENDING;
+        rx_state_ = RxState::IDLE;
+        rx_buf_.clear();
+        send_next_gea2_byte_();
+        pending_.sent_at_ms = millis();
+      }
+    }
+
     if (now_req - pending_.sent_at_ms >= REQUEST_TIMEOUT_MS) {
       if (pending_.retries_left > 0) {
         pending_.retries_left--;
@@ -705,6 +773,21 @@ void GEAComponent::poll_next_() {
 //   [DEST][LEN][SRC][PAYLOAD...][CRC_LO][CRC_HI]
 // (STX and ETX are not stored.)
 void GEAComponent::process_rx_byte_(uint8_t byte) {
+  if (protocol_ == Protocol::GEA2 && tx_state_ == TxState::SENDING) {
+    if (byte == gea2_tx_frame_[gea2_tx_index_]) {
+      gea2_tx_index_++;
+      if (gea2_tx_index_ >= gea2_tx_frame_.size()) {
+        tx_state_ = TxState::WAIT_FOR_ACK;
+      } else {
+        send_next_gea2_byte_();
+      }
+    } else {
+      ESP_LOGW(TAG, "GEA2 collision detected: expected 0x%02X, got 0x%02X", gea2_tx_frame_[gea2_tx_index_], byte);
+      abort_gea2_transmit_();
+    }
+    return;
+  }
+
   switch (rx_state_) {
     case RxState::IDLE:
       if (byte == GEA_STX) {

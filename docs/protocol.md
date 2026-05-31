@@ -234,32 +234,30 @@ node's address).
 - The bus self-echo is filtered out by checking the `dest` field against
   our own `src_address` — packets we sent ourselves are discarded before
   parsing.
-- We do **not** verify the echo byte-by-byte and we do **not** implement
-  the backoff FSM.
-- If a collision corrupts our request, we recover via the standard
-  request-reliability path (250 ms timeout × 10 retries — see below).
+- For GEA2, outgoing frames are transmitted one byte at a time and each
+  received echo byte is verified against the expected transmitted byte.
+- A byte mismatch triggers an immediate abort and a pseudo-random backoff
+  based on the adapter source address, matching the reference collision-
+  detection behavior.
+- If the full frame is successfully echoed, normal GEA2 response handling
+  continues with the existing request timeout and retry path.
 
 **Why it works in practice:**
 
-The other nodes on the bus run `tiny-gea-api` (or equivalent) and **do**
-detect collisions on their side, so they back off and retransmit within
-~50 ms. We notice the missing response 250 ms later and retry. Both sides
-eventually converge — at the cost of slightly higher latency on our end
-during a collision.
+The other nodes on the bus run `tiny-gea-api` (or equivalent) and also
+detect collisions on their side, backing off and retransmitting within
+~50 ms. With GEA2 byte-level echo verification, this adapter now also
+aborts immediately on a mismatched self-echo and retries after a short
+pseudo-random backoff.
 
-**What we lose by not implementing byte-level CD:**
+**What this implementation buys us:**
 
-- Slower recovery after a collision (250 ms timeout vs ~50 ms backoff).
-- We can briefly corrupt another node's in-flight frame before its CD
-  catches it, forcing it to retransmit. No data loss, just bus noise.
-- Less informative diagnostics on hardware faults: a missing echo today
-  looks the same as a missing response (timeout + retry), whereas
-  byte-level CD would flag wiring/power issues immediately.
-
-This is a known and intentional trade-off — see
-[Discussion #3](https://github.com/mguaylam/esphome-gea/discussions/3) for
-field reports and the conditions under which a byte-level CD implementation
-might be worth the added complexity.
+- Faster collision recovery, because a byte mismatch triggers an immediate
+  abort + backoff rather than waiting for the full request timeout.
+- Reduced risk of corrupting another node's in-flight frame, since we stop
+  transmitting as soon as the bus no longer matches our echo.
+- Better diagnostics on wiring and bus faults: a bad echo is detected
+  immediately instead of only after a missing response.
 
 ## Request reliability
 

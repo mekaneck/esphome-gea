@@ -205,6 +205,7 @@ class GEAComponent : public uart::UARTDevice, public Component {
   uint32_t get_crc_errors() const { return crc_errors_; }
   uint32_t get_tx_retries() const { return tx_retries_; }
   uint32_t get_dropped_requests() const { return dropped_requests_; }
+  uint32_t get_tx_collisions() const { return tx_collisions_; }
 
   // ---- on_erd_change triggers (registered from Python codegen) ------------
   void register_erd_change_trigger(ErdChangeTrigger *trigger) { erd_change_triggers_.push_back(trigger); }
@@ -215,6 +216,12 @@ class GEAComponent : public uart::UARTDevice, public Component {
   void send_ack_();
   void send_subscribe_all_(uint8_t type = 0x00);
   void send_pub_ack_(uint8_t context, uint8_t request_id);
+
+  // GEA2 transmit verification and collision backoff.
+  void send_next_gea2_byte_();
+  void abort_gea2_transmit_();
+  void build_gea2_tx_frame_(uint8_t dest, const std::vector<uint8_t> &payload);
+  uint32_t compute_gea2_backoff_ms_() const;
 
   // Request queue / retry machinery
   uint8_t next_req_id_();
@@ -271,6 +278,13 @@ class GEAComponent : public uart::UARTDevice, public Component {
   std::deque<PendingRequest> request_queue_;
   PendingRequest pending_{};
   bool pending_active_{false};
+
+  enum class TxState { IDLE, SENDING, WAIT_FOR_ACK, COLLISION_BACKOFF };
+  TxState tx_state_{TxState::IDLE};
+  std::vector<uint8_t> gea2_tx_frame_;
+  size_t gea2_tx_index_{0};
+  uint32_t gea2_backoff_until_ms_{0};
+  uint32_t tx_collisions_{0};
 
   // Timestamp of the last successfully received packet (ms since boot, 0 = none).
   uint32_t last_rx_ms_{0};

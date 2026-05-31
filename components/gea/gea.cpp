@@ -158,7 +158,6 @@ std::vector<uint8_t> GEAComponent::escape_(const std::vector<uint8_t> &raw) {
 void GEAComponent::send_packet_(uint8_t dest, const std::vector<uint8_t> &payload) {
   uint8_t len = (uint8_t)(7 + payload.size());
 
-  // Build the inner portion (subject to CRC and escaping)
   std::vector<uint8_t> inner;
   inner.reserve(4 + payload.size() + 2);
   inner.push_back(dest);
@@ -167,14 +166,27 @@ void GEAComponent::send_packet_(uint8_t dest, const std::vector<uint8_t> &payloa
   inner.insert(inner.end(), payload.begin(), payload.end());
 
   uint16_t crc = crc16_(inner.data(), inner.size());
-  inner.push_back(crc >> 8);    // CRC MSB (sent first, per GEA3 spec)
-  inner.push_back(crc & 0xFF);  // CRC LSB
+  inner.push_back(crc >> 8);
+  inner.push_back(crc & 0xFF);
 
   auto escaped = escape_(inner);
 
-  write_byte(GEA_STX);
-  write_array(escaped.data(), escaped.size());
-  write_byte(GEA_ETX);
+  if (protocol_ == Protocol::GEA2) {
+    // Build complete frame for byte-by-byte TX with reflection checking
+    tx_frame_.clear();
+    tx_frame_.push_back(GEA_STX);
+    tx_frame_.insert(tx_frame_.end(), escaped.begin(), escaped.end());
+    tx_frame_.push_back(GEA_ETX);
+    tx_frame_pos_ = 0;
+    tx_in_progress_ = true;
+    reflection_sent_ms_ = millis();
+    // Send first byte
+    write_byte(tx_frame_[0]);
+  } else {
+    write_byte(GEA_STX);
+    write_array(escaped.data(), escaped.size());
+    write_byte(GEA_ETX);
+  }
 }
 
 uint8_t GEAComponent::next_req_id_() {
@@ -500,6 +512,7 @@ void GEAComponent::loop() {
       break;
     rx_byte_count_++;
     process_rx_byte_(byte);
+    last_bus_activity_ms_ = millis();
   }
 
   // Log RX stats every 10 s so we can confirm the UART is receiving at all.
@@ -511,6 +524,14 @@ void GEAComponent::loop() {
   }
 
   if (protocol_ == Protocol::GEA2) {
+    // GEA2 reflection timeout check
+    if (tx_in_progress_) {
+      if (millis() - reflection_sent_ms_ > REFLECTION_TIMEOUT_MS) {
+        ESP_LOGW(TAG, "GEA2 reflection timeout at byte %zu", tx_frame_pos_);
+        tx_in_progress_ = false;
+        tx_frame_.clear();
+      }
+    }
 #ifdef GEA_GEA2_DISCOVERY
     if (gea2_discovery_ && discovery_state_ == DiscoveryState::SCANNING) {
       // During discovery: enqueue one read at a time with no inter-read delay.
@@ -564,35 +585,38 @@ void GEAComponent::loop() {
   // request when idle.  Only one request is in flight at a time so request_id
   // matching on the response is unambiguous.
   uint32_t now_req = millis();
-  if (pending_active_) {
-    if (now_req - pending_.sent_at_ms >= REQUEST_TIMEOUT_MS) {
-      if (pending_.retries_left > 0) {
-        pending_.retries_left--;
-        tx_retries_++;
-        ESP_LOGD(TAG, "Request cmd=0x%02X id=0x%02X timed out, retrying (%u left)", pending_.cmd, pending_.req_id,
-                 pending_.retries_left);
-        transmit_pending_();
-      } else {
-        if (pending_.is_discovery) {
-#ifdef GEA_GEA2_DISCOVERY
-          discovery_on_timeout_();
-#endif
+  if (!pending_active_ && !request_queue_.empty()) {
+    if (protocol_ == Protocol::GEA2 && tx_in_progress_)
+      return;  // wait for current TX to complete
+    if (pending_active_) {
+      if (now_req - pending_.sent_at_ms >= REQUEST_TIMEOUT_MS) {
+        if (pending_.retries_left > 0) {
+          pending_.retries_left--;
+          tx_retries_++;
+          ESP_LOGD(TAG, "Request cmd=0x%02X id=0x%02X timed out, retrying (%u left)", pending_.cmd, pending_.req_id,
+                   pending_.retries_left);
+          transmit_pending_();
         } else {
-          dropped_requests_++;
-          ESP_LOGW(TAG, "Request cmd=0x%02X id=0x%02X exhausted retries, dropping", pending_.cmd, pending_.req_id);
+          if (pending_.is_discovery) {
+#ifdef GEA_GEA2_DISCOVERY
+            discovery_on_timeout_();
+#endif
+          } else {
+            dropped_requests_++;
+            ESP_LOGW(TAG, "Request cmd=0x%02X id=0x%02X exhausted retries, dropping", pending_.cmd, pending_.req_id);
+          }
+          finish_pending_();
         }
-        finish_pending_();
       }
     }
-  }
-  if (!pending_active_ && !request_queue_.empty()) {
-    pending_ = std::move(request_queue_.front());
-    request_queue_.pop_front();
-    pending_active_ = true;
-    transmit_pending_();
+    if (!pending_active_ && !request_queue_.empty()) {
+      pending_ = std::move(request_queue_.front());
+      request_queue_.pop_front();
+      pending_active_ = true;
+      transmit_pending_();
+    }
   }
 }
-
 // =============================================================================
 // GEAComponent — entity registry & write
 // =============================================================================
@@ -705,6 +729,31 @@ void GEAComponent::poll_next_() {
 //   [DEST][LEN][SRC][PAYLOAD...][CRC_LO][CRC_HI]
 // (STX and ETX are not stored.)
 void GEAComponent::process_rx_byte_(uint8_t byte) {
+  // GEA2 byte-by-byte TX reflection handling
+  if (protocol_ == Protocol::GEA2 && tx_in_progress_) {
+    if (byte == tx_frame_[tx_frame_pos_]) {
+      // Reflection matches — send next byte or finish
+      tx_frame_pos_++;
+      if (tx_frame_pos_ < tx_frame_.size()) {
+        reflection_sent_ms_ = millis();
+        write_byte(tx_frame_[tx_frame_pos_]);
+      } else {
+        // All bytes reflected — TX complete, ready to receive response
+        tx_in_progress_ = false;
+        tx_frame_.clear();
+        rx_state_ = RxState::IDLE;
+        rx_buf_.clear();
+        ESP_LOGV(TAG, "GEA2 TX complete — all bytes reflected");
+      }
+    } else {
+      // Reflection mismatch — collision, abort TX
+      tx_in_progress_ = false;
+      tx_frame_.clear();
+      ESP_LOGW(TAG, "GEA2 TX collision detected at byte %zu (got 0x%02X)", 
+               tx_frame_pos_, byte);
+    }
+    return;
+  }
   switch (rx_state_) {
     case RxState::IDLE:
       if (byte == GEA_STX) {
@@ -779,7 +828,7 @@ void GEAComponent::process_packet_(const std::vector<uint8_t> &pkt) {
   ESP_LOGD(TAG, "Valid packet: src=0x%02X cmd=0x%02X len=%zu", src, pkt.size() >= 4 ? pkt[3] : 0, pkt.size());
 
   // Packet is valid — acknowledge it and record receive time (used by is_bus_connected()).
-  send_ack_();
+  // send_ack_();
   last_rx_ms_ = millis();
 
   // Auto-detect: lock onto the source address of the first valid packet.

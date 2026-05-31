@@ -227,10 +227,16 @@ void GEAComponent::abort_gea2_transmit_() {
   uint32_t backoff_ms = compute_gea2_backoff_ms_();
   tx_state_ = TxState::COLLISION_BACKOFF;
   gea2_backoff_until_ms_ = millis() + backoff_ms;
-  pending_.sent_at_ms = millis();
   rx_state_ = RxState::IDLE;
   rx_buf_.clear();
   ESP_LOGW(TAG, "GEA2 collision detected on pending request cmd=0x%02X, backing off for %ums", pending_.cmd, backoff_ms);
+}
+
+bool GEAComponent::gea2_can_transmit_() const {
+  if (rx_state_ != RxState::IDLE)
+    return false;
+  uint32_t now = millis();
+  return last_byte_rx_ms_ == 0 || (now - last_byte_rx_ms_) >= 10;
 }
 
 uint32_t GEAComponent::compute_gea2_backoff_ms_() const {
@@ -380,6 +386,7 @@ void GEAComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Registered entities: %zu", entities_.size());
   if (protocol_ == Protocol::GEA2) {
     ESP_LOGCONFIG(TAG, "  GEA2 collisions: %u", tx_collisions_);
+    ESP_LOGCONFIG(TAG, "  GEA2 transmit blocked by busy bus: %u", gea2_tx_blocked_);
   }
   for (auto *e : entities_) {
     ESP_LOGCONFIG(TAG, "    ERD 0x%04X", e->get_erd());
@@ -555,6 +562,7 @@ void GEAComponent::loop() {
     if (!read_byte(&byte))
       break;
     rx_byte_count_++;
+    last_byte_rx_ms_ = millis();
     process_rx_byte_(byte);
   }
 
@@ -623,17 +631,23 @@ void GEAComponent::loop() {
   if (pending_active_) {
     if (protocol_ == Protocol::GEA2 && tx_state_ == TxState::COLLISION_BACKOFF) {
       if (now_req >= gea2_backoff_until_ms_) {
-        ESP_LOGI(TAG, "GEA2 collision backoff expired, retrying pending request cmd=0x%02X", pending_.cmd);
-        gea2_tx_index_ = 0;
-        tx_state_ = TxState::SENDING;
-        rx_state_ = RxState::IDLE;
-        rx_buf_.clear();
-        send_next_gea2_byte_();
-        pending_.sent_at_ms = now_req;
+        if (gea2_can_transmit_()) {
+          ESP_LOGI(TAG, "GEA2 collision backoff expired, retrying pending request cmd=0x%02X", pending_.cmd);
+          gea2_tx_index_ = 0;
+          tx_state_ = TxState::SENDING;
+          rx_state_ = RxState::IDLE;
+          rx_buf_.clear();
+          send_next_gea2_byte_();
+          pending_.sent_at_ms = now_req;
+        } else {
+          gea2_tx_blocked_++;
+          ESP_LOGD(TAG, "GEA2 backoff expired but bus still active, waiting to retry");
+        }
       }
     }
 
-    if (now_req - pending_.sent_at_ms >= REQUEST_TIMEOUT_MS) {
+    if (!(protocol_ == Protocol::GEA2 && tx_state_ == TxState::COLLISION_BACKOFF) &&
+        now_req - pending_.sent_at_ms >= REQUEST_TIMEOUT_MS) {
       if (pending_.retries_left > 0) {
         pending_.retries_left--;
         tx_retries_++;
@@ -654,10 +668,15 @@ void GEAComponent::loop() {
     }
   }
   if (!pending_active_ && !request_queue_.empty()) {
-    pending_ = std::move(request_queue_.front());
-    request_queue_.pop_front();
-    pending_active_ = true;
-    transmit_pending_();
+    if (protocol_ != Protocol::GEA2 || gea2_can_transmit_()) {
+      pending_ = std::move(request_queue_.front());
+      request_queue_.pop_front();
+      pending_active_ = true;
+      transmit_pending_();
+    } else {
+      gea2_tx_blocked_++;
+      ESP_LOGD(TAG, "GEA2 waiting for bus idle before transmitting queued request");
+    }
   }
 }
 

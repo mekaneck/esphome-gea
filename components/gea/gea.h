@@ -48,8 +48,6 @@ static constexpr uint8_t CMD_SUB_HOST_STARTUP = 0xA8;  // appliance announces it
 // ---------------------------------------------------------------------------
 static constexpr uint8_t CMD_GEA2_READ = 0xF0;   // read request and read response
 static constexpr uint8_t CMD_GEA2_WRITE = 0xF1;  // write request and write response
-static constexpr uint32_t BUS_IDLE_MS = 10;
-uint32_t last_bus_activity_ms_{0};
 
 // ---------------------------------------------------------------------------
 // Protocol selector
@@ -299,6 +297,10 @@ class GEAComponent : public uart::UARTDevice, public Component {
 
   // Timestamp of the last successfully received packet (ms since boot, 0 = none).
   uint32_t last_rx_ms_{0};
+
+  // CSMA: timestamp of the last received byte — used to ensure bus is idle before TX.
+  uint32_t last_bus_activity_ms_{0};
+  static constexpr uint32_t BUS_IDLE_MS = 10;
 
   // Tracks previous bus state to detect appliance reconnection.
   bool was_connected_{false};

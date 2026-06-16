@@ -339,7 +339,7 @@ class GEAComponent : public uart::UARTDevice, public Component {
   // address in the SRC field of its response. On a multi-node bus more than one
   // node may answer, so we collect distinct responders over a short window and
   // only auto-adopt when exactly one replies (otherwise halt and ask the user).
-  static constexpr uint16_t GEA2_ADDR_PROBE_ERD = 0x0001;        // model number — present on every appliance
+  static constexpr uint16_t GEA2_ADDR_PROBE_ERD = 0x0008;        // model number — present on every appliance
   static constexpr uint32_t GEA2_ADDR_PROBE_WINDOW_MS = 500;     // collect responders this long after each probe
   static constexpr uint32_t GEA2_ADDR_PROBE_COOLDOWN_MS = 1000;  // idle gap between probe rounds
   static constexpr uint8_t GEA2_ADDR_PROBE_LOUD_ATTEMPTS = 5;    // throttle the "no response" warning after this many

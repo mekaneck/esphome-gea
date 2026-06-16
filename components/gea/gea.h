@@ -265,8 +265,8 @@ class GEAComponent : public uart::UARTDevice, public Component {
   // auto_detect_ is effectively GEA3-only.
   bool auto_detect_{true};
   uint8_t dest_addr_{GEA_BROADCAST_ADDR};
-  uint8_t src_addr_{0xBB};
-  Protocol protocol_{Protocol::GEA3};
+  uint8_t src_addr_{0xE4};
+  Protocol protocol_{Protocol::GEA2};
   uint32_t poll_interval_ms_{2000};
 
   // RX state machine

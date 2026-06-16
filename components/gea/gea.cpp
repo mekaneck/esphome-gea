@@ -527,7 +527,6 @@ void GEAComponent::loop() {
     if (!read_byte(&byte))
       break;
     rx_byte_count_++;
-    last_bus_activity_ms_ = millis();
     process_rx_byte_(byte);
   }
 
@@ -605,7 +604,14 @@ void GEAComponent::loop() {
         tx_retries_++;
         ESP_LOGD(TAG, "Request cmd=0x%02X id=0x%02X timed out, retrying (%u left)", pending_.cmd, pending_.req_id,
                  pending_.retries_left);
-        transmit_pending_();
+                // Wait for bus idle before retrying
+        if (protocol_ != Protocol::GEA2 ||
+            millis() - last_bus_activity_ms_ >= BUS_IDLE_MS) {
+          transmit_pending_();
+        } else {
+          // Reset timeout so we check again next loop
+          pending_.sent_at_ms = millis() - REQUEST_TIMEOUT_MS + BUS_IDLE_MS + 5;
+        }
       } else {
         if (pending_.is_discovery) {
 #ifdef GEA_GEA2_DISCOVERY
@@ -897,6 +903,15 @@ void GEAComponent::process_packet_(const std::vector<uint8_t> &pkt) {
     ESP_LOGD(TAG, "Ignoring packet for 0x%02X (we are 0x%02X)", dest, src_addr_);
     return;
   }
+
+  // For GEA2: filter self-echo (our own transmitted frame reflected back)
+  if (protocol_ == Protocol::GEA2 && src == src_addr_) {
+    ESP_LOGV(TAG, "RX: self-echo (TX loopback) from 0x%02X, dropping", src);
+    return;
+  }
+
+  // Only update bus activity for genuine external traffic
+  last_bus_activity_ms_ = millis();
 
   // Validate CRC: computed over everything except the last 2 (CRC) bytes.
   // GEA3 wire order is CRC MSB first, then LSB (big-endian).
